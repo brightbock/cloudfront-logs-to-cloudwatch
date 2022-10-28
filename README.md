@@ -14,7 +14,6 @@ This is a Terraform module / AWS [Lambda function](https://github.com/brightbock
 module "cloudfront_log_to_cloudwatch" {
   source = "git::https://github.com/brightbock/cloudfront-logs-to-cloudwatch.git?ref=v0.1.1"
 
-  aws_region         = "us-east-1"
   project_name       = "cloudfront_logs_demo"
   log_group_name     = "cloudfront_logs_demo"
   s3_object_arn_list = ["arn:aws:s3:::BUCKET/*.gz"]
