@@ -12,7 +12,7 @@ This is a Terraform module / AWS [Lambda function](https://github.com/brightbock
 
 ```
 module "cloudfront_log_to_cloudwatch" {
-  source = "git::https://github.com/brightbock/cloudfront-logs-to-cloudwatch.git?ref=v0.1.1"
+  source = "git::https://github.com/brightbock/cloudfront-logs-to-cloudwatch.git?ref=v0.2.1"
 
   project_name       = "cloudfront_logs_demo"
   log_group_name     = "cloudfront_logs_demo"
