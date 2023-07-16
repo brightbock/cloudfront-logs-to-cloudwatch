@@ -87,6 +87,7 @@ resource "aws_lambda_function" "lambda_deploy" {
   architectures    = var.lambda_architectures
   source_code_hash = filebase64sha256(var.lambda_zip_file)
   runtime          = var.lambda_runtime
+  layers           = var.lambda_layers_python
   environment {
     variables = {
       LOG_GROUP_NAME    = var.log_group_name

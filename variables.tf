@@ -53,6 +53,11 @@ variable "exclude_sc_status" {
 
 #### THE DEFAULTS SHOULD BE FINE BELOW HERE ####
 
+variable "lambda_layers_python" {
+  type    = list(string)
+  default = []
+}
+
 variable "lambda_src_file" {
   type    = string
   default = ""
@@ -70,7 +75,7 @@ variable "lambda_memory_size" {
 
 variable "lambda_runtime" {
   type    = string
-  default = "python3.9"
+  default = "python3.10"
 }
 
 variable "lambda_architectures" {
