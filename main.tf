@@ -72,7 +72,7 @@ resource "aws_iam_role_policy_attachment" "lambda_permissions" {
 data "archive_file" "source_zip" {
   type        = "zip"
   source_file = var.lambda_src_file == "" ? "${path.module}/src/lambda.py" : var.lambda_src_file
-  output_path = var.lambda_zip_file
+  output_path = var.lambda_zip_file == "" ? "${path.module}/.tf_tmp--${local.account_id}--${var.lambda_function_name}.tmp.zip" : var.lambda_zip_file
 }
 
 resource "aws_lambda_function" "lambda_deploy" {

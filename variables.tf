@@ -65,7 +65,7 @@ variable "lambda_src_file" {
 
 variable "lambda_zip_file" {
   type    = string
-  default = "/tmp/lambda-cfl-to-cwl.zip"
+  default = ""
 }
 
 variable "lambda_memory_size" {
