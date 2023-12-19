@@ -77,7 +77,7 @@ data "archive_file" "source_zip" {
 
 resource "aws_lambda_function" "lambda_deploy" {
   description      = "Insert CloudFront logs in to CloudWatch Logs - Triggered by S3 Events"
-  filename         = var.lambda_zip_file
+  filename         = data.archive_file.source_zip.output_path
   function_name    = local.lambda_function_name
   role             = aws_iam_role.lambda_execution_role.arn
   handler          = "${replace(basename(data.archive_file.source_zip.source_file), "/\\.py$/", "")}.lambda_handler"
@@ -85,7 +85,7 @@ resource "aws_lambda_function" "lambda_deploy" {
   publish          = "true"
   memory_size      = var.lambda_memory_size
   architectures    = var.lambda_architectures
-  source_code_hash = filebase64sha256(var.lambda_zip_file)
+  source_code_hash = data.archive_file.source_zip.output_base64sha256
   runtime          = var.lambda_runtime
   layers           = var.lambda_layers_python
   environment {
