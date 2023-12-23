@@ -128,7 +128,7 @@ def cfl_data_to_cwl(data):
             "put_batch", extra={"count": len(records), "data_size": batch_bytes}
         )
         sequence_token = put_records_to_cwl(records, sequence_token)
-    logging.debug("match_exclusions", extra={"count": excluded_records})
+    logging.info("match_exclusions", extra={"count": excluded_records})
 
 
 def batch_at_limits(record_count, payload_bytes, time_window):
