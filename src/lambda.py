@@ -32,6 +32,16 @@ def logerror(when, error):
     logging.error("error", extra={"text": str(error), "when": str(when)})
 
 
+def tsv_to_dict(split_line):
+    field_list = CLOUDFRONT_LOG_FIELD_ORDER
+    v = {}
+    for i, val in enumerate(split_line):
+        if i == len(field_list):
+            field_list.append(f"UNKNOWN{i}")
+        v[field_list[i]] = val
+    return v
+
+
 def create_log_stream(log_group_name, log_stream_name):
     for attempt in range(2):
         try:
@@ -53,12 +63,9 @@ def create_log_stream(log_group_name, log_stream_name):
     sys.exit(1)
 
 
-def extract_timestamp(line):
-    split_line = line.split(sep="\t")
-    t = datetime.strptime(
-        "{} {}".format(split_line[0], split_line[1]), "%Y-%m-%d %H:%M:%S"
-    ).timestamp()
-    time_ms = int(float(t) * 1000)
+def milliseconds_from_date_time(d, t):
+    timestamp = datetime.strptime("{} {}".format(d, t), "%Y-%m-%d %H:%M:%S").timestamp()
+    time_ms = int(float(timestamp) * 1000)
     return time_ms
 
 
@@ -67,10 +74,8 @@ def line_size(line):
     return line_encoded.__sizeof__()
 
 
-def match_exclusions(line):
-    split_line = line.split(sep="\t")
+def match_exclusions(sc_status):
     if match_exclude_sc_status.strip() != "":
-        sc_status = split_line[CLOUDFRONT_LOG_FIELD_INDEX["sc-status"]]
         for sc_status_exclude in match_exclude_sc_status.strip().split(sep=","):
             if sc_status.startswith(sc_status_exclude):
                 return True
@@ -87,15 +92,19 @@ def cfl_data_to_cwl(data):
 
     for line in data.strip().split("\n"):
         if line and not line.startswith("#"):
-            try:
-                line_timestamp = extract_timestamp(line)
-                line_bytes = line_size(line)
-            except Exception as e:
-                logerror("parsing log line", e)
+            split_line = line.split(sep="\t")
+            if len(split_line) < len(CLOUDFRONT_LOG_FIELD_INDEX):
+                logerror("parsing log line", {"text": line})
                 continue
-            if match_exclusions(line):
+            if match_exclusions(split_line[CLOUDFRONT_LOG_FIELD_INDEX["sc-status"]]):
                 excluded_records += 1
                 continue
+            line_timestamp = milliseconds_from_date_time(split_line[0], split_line[1])
+            if output_json:
+                line_to_log = json.dumps(tsv_to_dict(split_line))
+            else:
+                line_to_log = line
+            line_bytes = line_size(line_to_log)
             if earliest_event <= 0:
                 earliest_event = line_timestamp
             if batch_at_limits(
@@ -108,7 +117,9 @@ def cfl_data_to_cwl(data):
                 records = []
                 batch_bytes = 0
                 earliest_event = 0
-            records.insert(len(records), {"timestamp": line_timestamp, "message": line})
+            records.insert(
+                len(records), {"timestamp": line_timestamp, "message": line_to_log}
+            )
             batch_bytes += line_bytes
             if earliest_event > line_timestamp:
                 earliest_event = line_timestamp
@@ -231,41 +242,45 @@ def lambda_handler(event, context):
             continue
 
 
-CLOUDFRONT_LOG_FIELD_INDEX = {
-    "date": 0,
-    "time": 1,
-    "x-edge-location": 2,
-    "sc-bytes": 3,
-    "c-ip": 4,
-    "cs-method": 5,
-    "cs-hdr-host": 6,
-    "cs-uri-stem": 7,
-    "sc-status": 8,
-    "cs-hdr-referer": 9,
-    "cs-hdr-user-agent": 10,
-    "cs-uri-query": 11,
-    "cs-hdr-cookie": 12,
-    "x-edge-result-type": 13,
-    "x-edge-request-id": 14,
-    "x-host-header": 15,
-    "cs-protocol": 16,
-    "cs-bytes": 17,
-    "time-taken": 18,
-    "x-forwarded-for": 19,
-    "ssl-protocol": 20,
-    "ssl-cipher": 21,
-    "x-edge-response-result-type": 22,
-    "cs-protocol-version": 23,
-    "fle-status": 24,
-    "fle-encrypted-fields": 25,
-    "c-port": 26,
-    "time-to-first-byte": 27,
-    "x-edge-detailed-result-type": 28,
-    "sc-content-type": 29,
-    "sc-content-len": 30,
-    "sc-range-start": 31,
-    "sc-range-end": 32,
-}
+CLOUDFRONT_LOG_FIELD_ORDER = [
+    "date",
+    "time",
+    "x-edge-location",
+    "sc-bytes",
+    "c-ip",
+    "cs-method",
+    "cs-hdr-host",
+    "cs-uri-stem",
+    "sc-status",
+    "cs-hdr-referer",
+    "cs-hdr-user-agent",
+    "cs-uri-query",
+    "cs-hdr-cookie",
+    "x-edge-result-type",
+    "x-edge-request-id",
+    "x-host-header",
+    "cs-protocol",
+    "cs-bytes",
+    "time-taken",
+    "x-forwarded-for",
+    "ssl-protocol",
+    "ssl-cipher",
+    "x-edge-response-result-type",
+    "cs-protocol-version",
+    "fle-status",
+    "fle-encrypted-fields",
+    "c-port",
+    "time-to-first-byte",
+    "x-edge-detailed-result-type",
+    "sc-content-type",
+    "sc-content-len",
+    "sc-range-start",
+    "sc-range-end",
+]
+
+CLOUDFRONT_LOG_FIELD_INDEX = {}
+for i, name in enumerate(CLOUDFRONT_LOG_FIELD_ORDER):
+    CLOUDFRONT_LOG_FIELD_INDEX[name] = i
 
 # Create an Amazon S3 and an Amazon CloudWatch Logs Client
 s3 = boto3.client("s3")
@@ -279,6 +294,7 @@ log_stream_name = os.getenv(
     "localexecution-{:d}".format(int(float(datetime.now().timestamp()) * 1000)),
 )
 match_exclude_sc_status = os.getenv("EXCLUDE_SC_STATUS", "")
+output_json = False if os.getenv("OUTPUT_JSON", "false") == "false" else True
 try:
     log_group_name = os.environ["LOG_GROUP_NAME"]
 except KeyError as e:
@@ -296,7 +312,9 @@ if __name__ == "__main__":
             {
                 "s3": {
                     "bucket": {"name": "BUCKET"},
-                    "object": {"key": "cfl-example.gz"},
+                    "object": {
+                        "key": "KEY"
+                    },
                 }
             }
         ]

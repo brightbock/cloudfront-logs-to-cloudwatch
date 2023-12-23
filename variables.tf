@@ -51,6 +51,11 @@ variable "exclude_sc_status" {
   default = ""
 }
 
+variable "output_json" {
+  type    = string
+  default = "false"
+}
+
 variable "lambda_log_format" {
   type    = string
   default = "Text"

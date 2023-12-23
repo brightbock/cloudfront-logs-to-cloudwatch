@@ -92,6 +92,7 @@ resource "aws_lambda_function" "lambda_deploy" {
     variables = {
       LOG_GROUP_NAME    = var.log_group_name
       EXCLUDE_SC_STATUS = var.exclude_sc_status
+      OUTPUT_JSON       = var.output_json
     }
   }
   logging_config {
@@ -115,7 +116,7 @@ resource "aws_lambda_permission" "allow_s3_bucket" {
   action       = "lambda:InvokeFunction"
   # Allow execution of qualified version, but not unqualified version
   function_name = aws_lambda_function.lambda_deploy.function_name
-  qualifier = aws_lambda_function.lambda_deploy.version
+  qualifier     = aws_lambda_function.lambda_deploy.version
   principal     = "s3.amazonaws.com"
   source_arn    = "arn:aws:s3:::${var.s3_bucket_name}"
   lifecycle {
