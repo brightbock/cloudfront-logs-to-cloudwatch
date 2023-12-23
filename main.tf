@@ -94,6 +94,11 @@ resource "aws_lambda_function" "lambda_deploy" {
       EXCLUDE_SC_STATUS = var.exclude_sc_status
     }
   }
+  logging_config {
+    log_format            = var.lambda_log_format
+    application_log_level = var.lambda_log_format == "JSON" ? var.lambda_log_level : null
+    system_log_level      = var.lambda_log_format == "JSON" ? var.lambda_system_log_level : null
+  }
   lifecycle {
     create_before_destroy = true
   }
@@ -105,12 +110,17 @@ resource "aws_lambda_function" "lambda_deploy" {
 }
 
 resource "aws_lambda_permission" "allow_s3_bucket" {
-  count         = var.s3_bucket_name == "" ? 0 : 1
-  statement_id  = "AllowExecutionFromS3Bucket"
-  action        = "lambda:InvokeFunction"
+  count        = var.s3_bucket_name == "" ? 0 : 1
+  statement_id = "AllowExecutionFromS3Bucket_v${aws_lambda_function.lambda_deploy.version}"
+  action       = "lambda:InvokeFunction"
+  # Allow execution of qualified version, but not unqualified version
   function_name = aws_lambda_function.lambda_deploy.function_name
+  qualifier = aws_lambda_function.lambda_deploy.version
   principal     = "s3.amazonaws.com"
   source_arn    = "arn:aws:s3:::${var.s3_bucket_name}"
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 resource "aws_s3_bucket_notification" "bucket_notification" {
@@ -119,7 +129,7 @@ resource "aws_s3_bucket_notification" "bucket_notification" {
 
   lambda_function {
     id                  = "tf-lambda-${local.lambda_function_name}"
-    lambda_function_arn = aws_lambda_function.lambda_deploy.arn
+    lambda_function_arn = aws_lambda_function.lambda_deploy.qualified_arn
     events              = ["s3:ObjectCreated:*"]
     filter_prefix       = var.s3_notification_filter_prefix
     filter_suffix       = var.s3_notification_filter_suffix

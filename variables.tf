@@ -51,6 +51,21 @@ variable "exclude_sc_status" {
   default = ""
 }
 
+variable "lambda_log_format" {
+  type    = string
+  default = "Text"
+}
+
+variable "lambda_log_level" {
+  type    = string
+  default = "WARN"
+}
+
+variable "lambda_system_log_level" {
+  type    = string
+  default = "WARN"
+}
+
 #### THE DEFAULTS SHOULD BE FINE BELOW HERE ####
 
 variable "lambda_layers_python" {

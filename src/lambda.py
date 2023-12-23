@@ -1,3 +1,4 @@
+import logging
 import urllib.parse
 import botocore
 import boto3
@@ -10,21 +11,34 @@ from operator import itemgetter, attrgetter
 import time
 import json
 
+# JSON Logs (Lambda handles this automatically, the import is for local execution)
+try:
+    from pythonjsonlogger import jsonlogger
 
-def logjson(metric, message):
-    v = message if (type(message) == dict) else {"msg": "{0}".format(message)}
-    print(json.dumps({"metric": metric} | v, separators=(",", ":")))
+    logger = logging.getLogger()
+    logHandler = logging.StreamHandler()
+    formatter = jsonlogger.JsonFormatter()
+    logHandler.setFormatter(formatter)
+    logger.addHandler(logHandler)
+except ImportError:
+    pass
+
+# Logging Levels
+boto3.set_stream_logger(name="botocore", level=logging.WARN)
+boto3.set_stream_logger(name="boto3", level=logging.WARN)
 
 
 def logerror(when, error):
-    logjson("error", {"msg": str(error), "when": str(when)})
+    logging.error("error", extra={"text": str(error), "when": str(when)})
 
 
 def create_log_stream(log_group_name, log_stream_name):
     for attempt in range(2):
         try:
-            logjson("create_log_stream", {"attempt": attempt})
-            logs.create_log_stream(logGroupName=log_group_name, logStreamName=log_stream_name)
+            logging.debug("create_log_stream", extra={"attempt": attempt})
+            logs.create_log_stream(
+                logGroupName=log_group_name, logStreamName=log_stream_name
+            )
             return True
         except (
             botocore.exceptions.SSOError,
@@ -41,7 +55,9 @@ def create_log_stream(log_group_name, log_stream_name):
 
 def extract_timestamp(line):
     split_line = line.split(sep="\t")
-    t = datetime.strptime("{} {}".format(split_line[0], split_line[1]), "%Y-%m-%d %H:%M:%S").timestamp()
+    t = datetime.strptime(
+        "{} {}".format(split_line[0], split_line[1]), "%Y-%m-%d %H:%M:%S"
+    ).timestamp()
     time_ms = int(float(t) * 1000)
     return time_ms
 
@@ -82,8 +98,12 @@ def cfl_data_to_cwl(data):
                 continue
             if earliest_event <= 0:
                 earliest_event = line_timestamp
-            if batch_at_limits(len(records), batch_bytes + line_bytes, line_timestamp - earliest_event):
-                logjson("put_batch", {"count": len(records), "data_size": batch_bytes})
+            if batch_at_limits(
+                len(records), batch_bytes + line_bytes, line_timestamp - earliest_event
+            ):
+                logging.info(
+                    "put_batch", extra={"count": len(records), "data_size": batch_bytes}
+                )
                 sequence_token = put_records_to_cwl(records, sequence_token)
                 records = []
                 batch_bytes = 0
@@ -93,9 +113,11 @@ def cfl_data_to_cwl(data):
             if earliest_event > line_timestamp:
                 earliest_event = line_timestamp
     if len(records) > 0:
-        logjson("put_batch", {"count": len(records), "size": batch_bytes})
+        logging.info(
+            "put_batch", extra={"count": len(records), "data_size": batch_bytes}
+        )
         sequence_token = put_records_to_cwl(records, sequence_token)
-    logjson("match_exclusions", {"count": excluded_records})
+    logging.debug("match_exclusions", extra={"count": excluded_records})
 
 
 def batch_at_limits(record_count, payload_bytes, time_window):
@@ -132,10 +154,10 @@ def put_records_to_cwl(records, outgoing_sequence_token):
 
     for attempt in range(2):
         try:
-            # logjson("put_log_events_request", put_log_events_kwargs)
+            logging.debug("put_log_events_request", extra=put_log_events_kwargs)
             put_log_events_response = logs.put_log_events(**put_log_events_kwargs)
             new_sequence_token = put_log_events_response["nextSequenceToken"]
-            # logjson("put_log_events_response", put_log_events_response)
+            logging.debug("put_log_events_response", extra=put_log_events_response)
             break
 
         except logs.exceptions.InvalidSequenceTokenException as e:
@@ -143,20 +165,22 @@ def put_records_to_cwl(records, outgoing_sequence_token):
                 if "sequenceToken" in put_log_events_kwargs:
                     del put_log_events_kwargs["sequenceToken"]
                 if "expectedSequenceToken" in e.response:
-                    put_log_events_kwargs["sequenceToken"] = e.response["expectedSequenceToken"]
-                logjson(
+                    put_log_events_kwargs["sequenceToken"] = e.response[
+                        "expectedSequenceToken"
+                    ]
+                logging.warning(
                     "put_batch_retry",
-                    {"msg": "sequence token fixed", "attempt": attempt},
+                    extra={"text": "sequence token fixed", "attempt": attempt},
                 )
                 continue
             # unexpected, so log & raise
             logerror("put log events", e)
             raise e
-        except (logs.exceptions.DataAlreadyAcceptedException) as e:
+        except logs.exceptions.DataAlreadyAcceptedException as e:
             if e.response["Error"]["Code"] == "DataAlreadyAcceptedException":
-                logjson(
+                logging.warn(
                     "put_batch_already_accepted",
-                    {"msg": "batch previously accepted", "attempt": attempt},
+                    extra={"text": "batch previously accepted", "attempt": attempt},
                 )
                 if "expectedSequenceToken" in e.response:
                     new_sequence_token = e.response["expectedSequenceToken"]
@@ -179,13 +203,14 @@ def put_records_to_cwl(records, outgoing_sequence_token):
 
 
 def lambda_handler(event, context):
-
     # Get our S3 bucket and key from the event context, URL decode the keyname
     bucket = event["Records"][0]["s3"]["bucket"]["name"]
-    key = urllib.parse.unquote_plus(event["Records"][0]["s3"]["object"]["key"], encoding="utf-8")
+    key = urllib.parse.unquote_plus(
+        event["Records"][0]["s3"]["object"]["key"], encoding="utf-8"
+    )
 
     # Get S3 object
-    logjson("s3_get", {"bucket": bucket, "key": key})
+    logging.info("s3_get", extra={"bucket": bucket, "key": key})
     for attempt in range(2):
         try:
             response = s3.get_object(Bucket=bucket, Key=key)
@@ -248,9 +273,6 @@ logs = boto3.client("logs")
 sequence_token = None
 log_stream_created = False
 
-# Debug logging
-# boto3.set_stream_logger(name='botocore')
-
 # re-use this lambda instance's log stream name in our target log group
 log_stream_name = os.getenv(
     "AWS_LAMBDA_LOG_STREAM_NAME",
@@ -263,7 +285,9 @@ except KeyError as e:
     logerror("reading environment variable", e)
     sys.exit(1)
 
-logjson("init", {"log_group": log_group_name, "log_stream": log_stream_name})
+logging.debug(
+    "init", extra={"log_group": log_group_name, "log_stream": log_stream_name}
+)
 
 if __name__ == "__main__":
     context = []
